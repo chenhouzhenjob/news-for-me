@@ -1,0 +1,41 @@
+name: Twitter Daily Report
+
+on:
+  schedule:
+    # 00:00 UTC is 08:00 in Asia/Shanghai.
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+    inputs:
+      report_date:
+        description: "Optional report date in Asia/Shanghai, YYYY-MM-DD"
+        required: false
+        type: string
+
+jobs:
+  send-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+      APIFY_TWITTER_COOKIE: ${{ secrets.APIFY_TWITTER_COOKIE }}
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      SMTP_FROM: ${{ secrets.SMTP_FROM }}
+      RECIPIENT_EMAIL: ${{ secrets.EMAIL_TO || vars.RECIPIENT_EMAIL }}
+      TWITTER_ACCOUNTS: ${{ vars.TWITTER_ACCOUNTS || '@aleabitoreddit,@justinsuntron,@wufantouzi,@sunyuchentron,@elonmusk,@readDonaldTrump' }}
+      TIMEZONE: ${{ vars.TIMEZONE || 'Asia/Shanghai' }}
+      MAX_RESULTS_PER_ACCOUNT: ${{ vars.MAX_RESULTS_PER_ACCOUNT || '200' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run report
+        run: |
+          if [ -n "${{ inputs.report_date }}" ]; then
+            python3 twitter_daily_report.py --date "${{ inputs.report_date }}"
+          else
+            python3 twitter_daily_report.py
+          fi
