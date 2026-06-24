@@ -79,7 +79,7 @@ TOPIC_KEYWORDS = {
     "regulation": "政策 / 监管",
     "market": "市场 / 投资",
     "investment": "市场 / 投资",
-    "funding": "创业 / 融资",
+    "funding round": "创业 / 融资",
     "ipo": "资本市场",
     "acquisition": "资本市场",
     "merger": "资本市场",
@@ -114,7 +114,6 @@ IMPORTANT_KEYWORDS = {
     "law",
     "ban",
     "tariff",
-    "funding",
     "raises",
     "breakthrough",
     "milestone",
@@ -148,6 +147,12 @@ LOW_VALUE_PATTERNS = [
     r"airdrop",
     r"promo code",
     r"limited offer",
+    r"bagholding",
+    r"miss out on",
+    r"nothing is more stupid",
+    r"\bgarbage\b",
+    r"\bcrap\b",
+    r"\bbs\b",
 ]
 
 
@@ -442,11 +447,13 @@ def low_value_reason(tweet: Tweet, topics: list[str]) -> str | None:
             return "短句、情绪表达或缺少上下文"
         if re.search(r"giveaway|airdrop|抽奖|转发.*关注", lower, flags=re.IGNORECASE):
             return "抽奖、营销或广告内容"
-    if len(text) < 45 and not tweet.urls and not tweet.media_urls and not tweet.is_quote:
+    if len(text) < 45 and not tweet.urls and not tweet.media_urls:
         return "无上下文短句"
+    if re.search(r"\b(bagholding|miss out on|nothing is more stupid|garbage|crap|bs)\b", lower):
+        return "情绪化争论或口水战"
     if not topics:
         return "与目标主题关联弱或信息密度不足"
-    if re.search(r"\b(lie|liar|fraud|garbage|insane|killed millions)\b", lower) and not (
+    if re.search(r"\b(lie|liar|fraud\w*|insane|killed millions)\b", lower) and not (
         tweet.urls or {"政策 / 监管", "宏观 / 政策", "市场 / 投资"} & set(topics)
     ):
         return "情绪化争论或口水战"
@@ -481,7 +488,7 @@ def score_tweet(tweet: Tweet, topics: list[str]) -> int:
 
 
 def classify_level(score: int, tweet: Tweet, topics: list[str]) -> str:
-    if score >= 6 and topics:
+    if score >= 7 and topics:
         return "S"
     if score >= 4:
         return "A"
