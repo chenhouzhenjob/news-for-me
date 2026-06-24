@@ -56,6 +56,12 @@ Send the email:
 python3 twitter_daily_report.py
 ```
 
+Send a test email with a test marker in the subject:
+
+```bash
+python3 twitter_daily_report.py --test
+```
+
 Generate a report for a specific local date:
 
 ```bash

@@ -172,6 +172,7 @@ class Config:
     smtp_password: str
     smtp_from: str
     dry_run: bool
+    test_mode: bool
     output_path: str | None
 
 
@@ -213,6 +214,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate a Twitter/X daily report.")
     parser.add_argument("--date", help="Report date in configured timezone, YYYY-MM-DD. Defaults to yesterday.")
     parser.add_argument("--dry-run", action="store_true", help="Print/write the report without sending email.")
+    parser.add_argument("--test", action="store_true", help="Mark the email subject and body as a test send.")
     parser.add_argument("--output", help="Optional path to write the rendered email body.")
     return parser.parse_args()
 
@@ -297,6 +299,7 @@ def load_config(args: argparse.Namespace) -> Config:
         smtp_password=smtp_password,
         smtp_from=smtp_from,
         dry_run=args.dry_run,
+        test_mode=args.test,
         output_path=args.output,
     )
 
@@ -641,6 +644,8 @@ def render_report(
     level_counts = Counter(item.level for item in kept)
     report_date = config.report_date.isoformat()
     subject = f"【Twitter 日报】{report_date} 高价值信息摘要"
+    if config.test_mode:
+        subject = f"【测试】{subject}"
     start, end = report_window(config)
 
     no_tweet_accounts = [account for account, tweets in tweets_by_account.items() if not tweets and account not in fetch_errors]
@@ -654,13 +659,19 @@ def render_report(
         f"# {subject}",
         "",
         f"统计窗口：{start:%Y-%m-%d %H:%M:%S %Z} 至 {(end - timedelta(seconds=1)):%Y-%m-%d %H:%M:%S %Z}",
-        "",
-        "## 1. 今日摘要",
-        f"- 总共扫描账号数：{len(config.accounts)}",
-        f"- 总推文数：{total_tweets}",
-        f"- 保留高价值推文数：{len(kept)}",
-        f"- S/A/B 数量：S {format_count(level_counts, 'S')} / A {format_count(level_counts, 'A')} / B {format_count(level_counts, 'B')}",
     ]
+    if config.test_mode:
+        lines.extend(["", "测试说明：这是页面样式验证邮件，用于确认新版日报排版效果。"])
+    lines.extend(
+        [
+            "",
+            "## 1. 今日摘要",
+            f"- 总共扫描账号数：{len(config.accounts)}",
+            f"- 总推文数：{total_tweets}",
+            f"- 保留高价值推文数：{len(kept)}",
+            f"- S/A/B 数量：S {format_count(level_counts, 'S')} / A {format_count(level_counts, 'A')} / B {format_count(level_counts, 'B')}",
+        ]
+    )
     if no_tweet_accounts:
         lines.append("- 昨天无公开推文账号：" + ", ".join(no_tweet_accounts))
     if fetch_errors:
@@ -722,22 +733,307 @@ def render_report(
     return subject, body
 
 
+def html_linkify(text: str) -> str:
+    escaped = html.escape(text)
+    return re.sub(
+        r"(https?://[^\s<]+)",
+        r'<a href="\1" style="color:#2563eb;text-decoration:none;">\1</a>',
+        escaped,
+    )
+
+
+def level_badge(level: str) -> str:
+    colors = {
+        "S": ("#7c2d12", "#ffedd5", "#fb923c"),
+        "A": ("#1e3a8a", "#dbeafe", "#60a5fa"),
+        "B": ("#374151", "#f3f4f6", "#9ca3af"),
+    }
+    fg, bg, border = colors.get(level, ("#374151", "#f3f4f6", "#d1d5db"))
+    return (
+        f'<span style="display:inline-block;padding:4px 10px;border-radius:999px;'
+        f'font-size:12px;font-weight:700;color:{fg};background:{bg};'
+        f'border:1px solid {border};letter-spacing:.3px;">{html.escape(level)}</span>'
+    )
+
+
+def render_summary_card(line: str) -> str:
+    text = line[2:] if line.startswith("- ") else line
+    label, separator, value = text.partition("：")
+    if not separator:
+        return f'<div class="note">{html_linkify(text)}</div>'
+    return (
+        '<div class="summary-card">'
+        f'<div class="summary-label">{html.escape(label)}</div>'
+        f'<div class="summary-value">{html_linkify(value)}</div>'
+        "</div>"
+    )
+
+
+def render_tweet_card_header(line: str) -> str:
+    match = re.match(r"^(?:\d+\. |- )\[(S|A|B)\]\s+(@[^|]+)\|\s*(.+)$", line)
+    if not match:
+        return f'<div class="tweet-card"><p>{html_linkify(line)}</p>'
+    level, author, timestamp = match.groups()
+    return (
+        '<div class="tweet-card">'
+        '<div class="tweet-head">'
+        f"{level_badge(level)}"
+        f'<div><div class="tweet-author">{html.escape(author.strip())}</div>'
+        f'<div class="tweet-time">{html.escape(timestamp.strip())}</div></div>'
+        "</div>"
+    )
+
+
+def render_labeled_line(line: str) -> str:
+    stripped = line.strip()
+    label, separator, value = stripped.partition("：")
+    if separator and label in {"原文", "互动", "中文解释", "背景补充", "延伸判断", "我的建议"}:
+        class_name = "tweet-text" if label == "原文" else "tweet-row"
+        return (
+            f'<div class="{class_name}"><span class="row-label">{html.escape(label)}</span>'
+            f'<span>{html_linkify(value)}</span></div>'
+        )
+    if separator and label == "链接":
+        href = html.escape(value.strip(), quote=True)
+        return f'<a class="source-button" href="{href}">查看原文</a>'
+    return f'<p class="tweet-continuation">{html_linkify(stripped)}</p>'
+
+
 def markdown_to_html(markdown_text: str) -> str:
-    escaped_lines = []
+    parts: list[str] = []
+    in_summary = False
+    in_card = False
+    current_section = ""
+
+    def close_summary() -> None:
+        nonlocal in_summary
+        if in_summary:
+            parts.append("</div>")
+            in_summary = False
+
+    def close_card() -> None:
+        nonlocal in_card
+        if in_card:
+            parts.append("</div>")
+            in_card = False
+
     for line in markdown_text.splitlines():
         if line.startswith("# "):
-            escaped_lines.append(f"<h1>{html.escape(line[2:])}</h1>")
+            close_card()
+            close_summary()
+            parts.append(
+                '<div class="hero">'
+                '<div class="eyebrow">Twitter / X Intelligence Brief</div>'
+                f"<h1>{html.escape(line[2:])}</h1>"
+                "</div>"
+            )
+        elif line.startswith("统计窗口："):
+            parts.append(f'<div class="window">{html.escape(line)}</div>')
+        elif line.startswith("测试说明："):
+            parts.append(f'<div class="test-banner">{html.escape(line)}</div>')
         elif line.startswith("## "):
-            escaped_lines.append(f"<h2>{html.escape(line[3:])}</h2>")
+            close_card()
+            close_summary()
+            current_section = line[3:]
+            parts.append(f'<h2>{html.escape(current_section)}</h2>')
+            if current_section == "1. 今日摘要":
+                parts.append('<div class="summary-grid">')
+                in_summary = True
         elif line.startswith("### "):
-            escaped_lines.append(f"<h3>{html.escape(line[4:])}</h3>")
+            close_card()
+            close_summary()
+            title = line[4:]
+            level = title[:1]
+            badge = level_badge(level) if level in {"S", "A", "B"} else ""
+            parts.append(f'<h3>{badge}<span>{html.escape(title)}</span></h3>')
+        elif re.match(r"^(?:\d+\. |- )\[(S|A|B)\]\s+@", line):
+            close_card()
+            close_summary()
+            parts.append(render_tweet_card_header(line))
+            in_card = True
+        elif in_card and line.startswith("  "):
+            parts.append(render_labeled_line(line))
         elif line.startswith("- "):
-            escaped_lines.append(f"<p>{html.escape(line)}</p>")
+            if in_summary:
+                parts.append(render_summary_card(line))
+            else:
+                parts.append(f'<div class="bullet">{html_linkify(line[2:])}</div>')
         elif not line:
-            escaped_lines.append("<br>")
+            continue
+        elif in_card:
+            parts.append(render_labeled_line(line))
         else:
-            escaped_lines.append(f"<p>{html.escape(line)}</p>")
-    return "<html><body>" + "\n".join(escaped_lines) + "</body></html>"
+            parts.append(f'<p>{html_linkify(line)}</p>')
+
+    close_card()
+    close_summary()
+    content = "\n".join(parts)
+    return f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {{
+      margin: 0;
+      padding: 0;
+      background: #eef2f7;
+      color: #111827;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.6;
+    }}
+    .page {{
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 28px 18px 42px;
+    }}
+    .hero {{
+      padding: 30px;
+      border-radius: 24px;
+      background: linear-gradient(135deg, #0f172a 0%, #1d4ed8 55%, #06b6d4 100%);
+      color: #ffffff;
+      box-shadow: 0 18px 45px rgba(15, 23, 42, 0.22);
+    }}
+    .hero h1 {{
+      margin: 8px 0 0;
+      font-size: 28px;
+      line-height: 1.25;
+      letter-spacing: -0.4px;
+    }}
+    .eyebrow {{
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1.8px;
+      color: #bfdbfe;
+      font-weight: 700;
+    }}
+    .window, .test-banner {{
+      margin: 16px 0;
+      padding: 12px 16px;
+      border-radius: 14px;
+      background: #ffffff;
+      color: #475569;
+      border: 1px solid #e5e7eb;
+    }}
+    .test-banner {{
+      color: #92400e;
+      background: #fffbeb;
+      border-color: #fbbf24;
+      font-weight: 700;
+    }}
+    h2 {{
+      margin: 28px 0 14px;
+      padding-left: 12px;
+      border-left: 5px solid #2563eb;
+      font-size: 20px;
+      color: #0f172a;
+    }}
+    h3 {{
+      margin: 22px 0 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 16px;
+      color: #1f2937;
+    }}
+    .summary-grid {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }}
+    .summary-card {{
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+    }}
+    .summary-label {{
+      color: #64748b;
+      font-size: 13px;
+      margin-bottom: 5px;
+    }}
+    .summary-value {{
+      color: #0f172a;
+      font-weight: 800;
+      font-size: 18px;
+    }}
+    .tweet-card {{
+      margin: 14px 0 18px;
+      padding: 18px;
+      border: 1px solid #dbe3ef;
+      border-radius: 20px;
+      background: #ffffff;
+      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+    }}
+    .tweet-head {{
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #eef2f7;
+      margin-bottom: 12px;
+    }}
+    .tweet-author {{
+      font-weight: 800;
+      color: #0f172a;
+    }}
+    .tweet-time {{
+      font-size: 12px;
+      color: #64748b;
+    }}
+    .tweet-text {{
+      padding: 14px;
+      border-radius: 14px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      white-space: pre-wrap;
+    }}
+    .tweet-row, .tweet-continuation {{
+      margin-top: 10px;
+    }}
+    .row-label {{
+      display: inline-block;
+      min-width: 72px;
+      color: #475569;
+      font-weight: 800;
+    }}
+    .source-button {{
+      display: inline-block;
+      margin-top: 12px;
+      padding: 9px 14px;
+      border-radius: 999px;
+      color: #ffffff !important;
+      background: #2563eb;
+      text-decoration: none;
+      font-weight: 800;
+    }}
+    .bullet, .note, p {{
+      margin: 8px 0;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+    }}
+    @media (max-width: 640px) {{
+      .summary-grid {{
+        grid-template-columns: 1fr;
+      }}
+      .hero {{
+        padding: 22px;
+      }}
+      .hero h1 {{
+        font-size: 23px;
+      }}
+    }}
+  </style>
+</head>
+<body>
+  <div class="page">
+    {content}
+  </div>
+</body>
+</html>"""
 
 
 def send_email(config: Config, subject: str, body: str) -> None:
