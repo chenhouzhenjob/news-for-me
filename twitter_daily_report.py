@@ -410,27 +410,46 @@ def shorten(text: str, limit: int = 180) -> str:
     return text[: limit - 1].rstrip() + "..."
 
 
+def keyword_matches(text: str, keyword: str) -> bool:
+    """Match English keywords by token/phrase, Chinese keywords by substring."""
+    keyword = keyword.lower()
+    if any(ord(char) > 127 for char in keyword):
+        return keyword in text
+    escaped = re.escape(keyword)
+    if " " in keyword:
+        return re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", text) is not None
+    return re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", text) is not None
+
+
 def detect_topics(text: str) -> list[str]:
     lower = text.lower()
     topics: list[str] = []
     for keyword, topic in TOPIC_KEYWORDS.items():
-        if keyword in lower and topic not in topics:
+        if keyword_matches(lower, keyword) and topic not in topics:
             topics.append(topic)
     return topics
 
 
-def low_value_reason(tweet: Tweet) -> str | None:
+def low_value_reason(tweet: Tweet, topics: list[str]) -> str | None:
     text = visible_text(tweet.text)
     lower = text.lower()
     if tweet.is_retweet:
         return "纯转发或转推内容"
+    if tweet.is_reply and len(text) < 100 and not tweet.urls and not tweet.media_urls:
+        return "回复内容缺少上下文"
     if any(re.search(pattern, lower, flags=re.IGNORECASE) for pattern in LOW_VALUE_PATTERNS):
         if len(text) < 80 and not tweet.urls and not tweet.media_urls:
             return "短句、情绪表达或缺少上下文"
         if re.search(r"giveaway|airdrop|抽奖|转发.*关注", lower, flags=re.IGNORECASE):
             return "抽奖、营销或广告内容"
-    if len(text) < 28 and not tweet.urls and not tweet.media_urls and not tweet.is_quote:
+    if len(text) < 45 and not tweet.urls and not tweet.media_urls and not tweet.is_quote:
         return "无上下文短句"
+    if not topics:
+        return "与目标主题关联弱或信息密度不足"
+    if re.search(r"\b(lie|liar|fraud|garbage|insane|killed millions)\b", lower) and not (
+        tweet.urls or {"政策 / 监管", "宏观 / 政策", "市场 / 投资"} & set(topics)
+    ):
+        return "情绪化争论或口水战"
     return None
 
 
@@ -446,7 +465,7 @@ def score_tweet(tweet: Tweet, topics: list[str]) -> int:
         score += 1
     if tweet.is_quote:
         score += 1
-    if any(keyword in lower for keyword in IMPORTANT_KEYWORDS):
+    if any(keyword_matches(lower, keyword) for keyword in IMPORTANT_KEYWORDS):
         score += 2
     if len(text) >= 120:
         score += 1
@@ -485,10 +504,24 @@ def account_background(username: str) -> str:
 
 
 def build_explanation(tweet: Tweet, topics: list[str]) -> str:
-    text = shorten(tweet.text, 160)
+    topic_text = "; ".join(topics)
+    text = tweet.text
+    lower = text.lower()
+    if "AI / 模型 / 算力" in topics:
+        if any(keyword_matches(lower, key) for key in ["photonics", "laser", "nvidia", "gpu", "cpo"]):
+            return "作者在讨论 AI 算力产业链中的光通信、激光器或芯片供应瓶颈，并把它与相关公司机会联系起来。"
+        return "作者在讨论 AI 产品、模型或算力生态的变化，属于需要跟踪的技术/产品信号。"
+    if "市场 / 投资" in topics or "资本市场" in topics:
+        return "作者在表达市场或投资判断，并引用公司、指数、利率预期或交易数据作为依据。"
+    if "宏观 / 政策" in topics or "政策 / 监管" in topics:
+        return "作者在讨论宏观政策、监管或政治信息对市场预期的潜在影响。"
+    if "产品发布 / 商业进展" in topics:
+        return "作者提到产品、合作或商业进展，重点在于其是否能转化为实际收入、用户增长或生态影响。"
+    if "加密资产 / 区块链" in topics:
+        return "作者在讨论加密资产或区块链生态信息，需关注是否有链上数据、官方公告或监管变化支撑。"
     if topics:
-        return f"这条推文与{'; '.join(topics)}相关，核心信息是：{text}"
-    return f"这条推文提供了一条可核验的一手信息或链接，核心内容是：{text}"
+        return f"这条推文与{topic_text}相关，提供了可继续核验的观点、案例或一手线索。"
+    return "这条推文提供了一条可核验的一手信息或链接，但主题相关性需要结合原文继续判断。"
 
 
 def build_background(tweet: Tweet, topics: list[str]) -> str:
@@ -529,14 +562,14 @@ def filter_and_summarize(tweets: list[Tweet]) -> tuple[list[KeptItem], Counter[s
             continue
         seen_texts.add(duplicate_key)
 
-        reason = low_value_reason(tweet)
+        topics = detect_topics(tweet.text)
+        reason = low_value_reason(tweet, topics)
         if reason:
             filtered_reasons[reason] += 1
             continue
 
-        topics = detect_topics(tweet.text)
         score = score_tweet(tweet, topics)
-        if score < 2 or not (topics or tweet.urls or tweet.media_urls):
+        if score < 3:
             filtered_reasons["与目标主题关联弱或信息密度不足"] += 1
             continue
 
