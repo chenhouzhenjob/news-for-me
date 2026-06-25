@@ -25,6 +25,7 @@ jobs:
       TIMEZONE: ${{ vars.TIMEZONE || 'Asia/Shanghai' }}
       AI_MAX_ITEMS: ${{ vars.AI_MAX_ITEMS || '12' }}
       AI_FETCH_ARTICLE_IMAGES: ${{ vars.AI_FETCH_ARTICLE_IMAGES || 'true' }}
+      GITHUB_TOKEN: ${{ github.token }}
 
     steps:
       - name: Check out repository

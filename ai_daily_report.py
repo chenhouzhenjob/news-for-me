@@ -432,14 +432,17 @@ def report_window(config: Config) -> tuple[datetime, datetime]:
     return start, start + timedelta(days=1)
 
 
-def fetch_url(url: str, timeout: int = 30) -> bytes:
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+def fetch_url(url: str, timeout: int = 30, headers: dict[str, str] | None = None) -> bytes:
+    request_headers = {"User-Agent": USER_AGENT}
+    if headers:
+        request_headers.update(headers)
+    request = urllib.request.Request(url, headers=request_headers)
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return response.read()
 
 
-def fetch_text(url: str, timeout: int = 30) -> str:
-    data = fetch_url(url, timeout=timeout)
+def fetch_text(url: str, timeout: int = 30, headers: dict[str, str] | None = None) -> str:
+    data = fetch_url(url, timeout=timeout, headers=headers)
     return data.decode("utf-8", "replace")
 
 
@@ -738,7 +741,11 @@ def collect_github_items(config: Config) -> tuple[list[NewsItem], str | None]:
         "GitHub 仓库 README 截图、项目 logo 或 Star 趋势图。",
     )
     try:
-        payload = json.loads(fetch_text(url, timeout=30))
+        headers = {"Accept": "application/vnd.github+json"}
+        github_token = env_first("GITHUB_TOKEN", "GH_TOKEN")
+        if github_token:
+            headers["Authorization"] = f"Bearer {github_token}"
+        payload = json.loads(fetch_text(url, timeout=30, headers=headers))
     except Exception as exc:  # noqa: BLE001
         return [], f"GitHub Search: {exc}"
 
