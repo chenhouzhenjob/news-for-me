@@ -535,6 +535,86 @@ def normalize_title(value: str) -> str:
     return re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", value)
 
 
+def contains_any(text: str, keywords: list[str]) -> bool:
+    return any(keyword in text for keyword in keywords)
+
+
+def chinese_signals(title: str, description: str) -> list[str]:
+    text = f"{title} {strip_html(description)}".lower()
+    signal_rules = [
+        (["llm", "large language", "language model", "gpt", "claude", "gemini", "llama"], "大语言模型"),
+        (["agent", "agents", "agentic", "copilot"], "AI 智能体/助手"),
+        (["multimodal", "vision", "image", "video", "audio", "speech", "asr", "ocr"], "多模态能力"),
+        (["chip", "processor", "gpu", "nvidia", "accelerator"], "AI 芯片与算力基础设施"),
+        (["inference", "training", "serving", "deployment"], "模型训练与推理部署"),
+        (["benchmark", "leaderboard", "eval", "evaluation"], "模型评测与基准"),
+        (["open source", "open-source", "github", "repository", "repo"], "开源生态"),
+        (["api", "developer", "sdk", "toolkit", "framework"], "开发者工具链"),
+        (["funding", "raises", "valuation", "acquisition", "acquires", "investment"], "融资/并购与资本动向"),
+        (["regulation", "regulator", "policy", "safety", "copyright", "lawsuit"], "监管、安全与版权风险"),
+        (["health", "medical", "biology", "protein", "science", "research"], "AI for Science/医疗健康"),
+        (["robot", "robotics", "autonomous"], "机器人与具身智能"),
+        (["enterprise", "business", "customer", "production", "scale"], "企业级落地与规模化部署"),
+        (["模型", "大模型"], "大模型"),
+        (["智能体", "助手"], "AI 智能体/助手"),
+        (["多模态", "语音", "图像", "视频", "视觉"], "多模态能力"),
+        (["芯片", "算力", "推理", "训练"], "AI 芯片与算力基础设施"),
+        (["开源", "仓库"], "开源生态"),
+        (["融资", "收购", "投资"], "融资/并购与资本动向"),
+        (["监管", "政策", "安全", "版权"], "监管、安全与版权风险"),
+    ]
+    signals: list[str] = []
+    for keywords, signal in signal_rules:
+        if contains_any(text, keywords) and signal not in signals:
+            signals.append(signal)
+    return signals[:3]
+
+
+def signal_phrase(title: str, description: str) -> str:
+    signals = chinese_signals(title, description)
+    if not signals:
+        return "AI 产品、技术或产业趋势"
+    return "、".join(signals)
+
+
+def action_phrase(title: str, description: str) -> str:
+    text = f"{title} {strip_html(description)}".lower()
+    if contains_any(text, ["funding", "raises", "valuation", "investment", "融资", "投资"]):
+        return "披露融资或资本市场动态"
+    if contains_any(text, ["acquisition", "acquires", "merger", "收购", "并购"]):
+        return "披露并购或公司整合动态"
+    if contains_any(
+        text,
+        [
+            "release",
+            "released",
+            "launch",
+            "launched",
+            "announce",
+            "announced",
+            "introduce",
+            "introduced",
+            "introducing",
+            "unveil",
+            "unveiled",
+            "reveals",
+            "发布",
+            "上线",
+            "推出",
+        ],
+    ):
+        return "发布产品、模型或技术更新"
+    if contains_any(text, ["partner", "partnership", "collaborate", "collaboration", "合作"]):
+        return "宣布合作进展"
+    if contains_any(text, ["regulation", "regulator", "policy", "lawsuit", "监管", "政策", "诉讼"]):
+        return "披露监管、政策或法律相关变化"
+    if contains_any(text, ["benchmark", "leaderboard", "eval", "evaluation", "基准", "评测"]):
+        return "发布评测或基准进展"
+    if contains_any(text, ["open source", "open-source", "github", "开源"]):
+        return "发布开源或开发者生态进展"
+    return "发布一条重要动态"
+
+
 def is_low_value_item(title: str, description: str) -> bool:
     text = f"{title} {strip_html(description)}".lower()
     return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in LOW_VALUE_TITLE_PATTERNS)
@@ -561,10 +641,9 @@ def importance_score(source: Source, title: str, summary: str, published: dateti
 
 
 def summary_for(source: Source, title: str, description: str) -> str:
-    clean_description = truncate(strip_html(description), 260)
-    if len(clean_description) >= 40:
-        return f"{source.name} 发布/报道了「{title}」。原文要点：{clean_description}"
-    return f"{source.name} 发布/报道了「{title}」，建议结合原文查看细节、适用范围和后续影响。"
+    signals = signal_phrase(title, description)
+    action = action_phrase(title, description)
+    return f"{source.name} {action}，主题为「{title}」，主要涉及：{signals}；建议打开原文核对具体能力、适用范围和后续影响。"
 
 
 def why_for(source: Source, title: str, summary: str) -> str:
@@ -702,11 +781,13 @@ def collect_arxiv_items(config: Config) -> tuple[list[NewsItem], str | None]:
         if score < 50:
             continue
         clean_title = truncate(strip_html(title), 180)
-        clean_summary = truncate(strip_html(summary), 300)
         items.append(
             NewsItem(
                 title=f"论文：{clean_title}",
-                summary=f"arXiv 新提交论文「{clean_title}」。摘要要点：{clean_summary}",
+                summary=(
+                    f"arXiv 新提交论文「{clean_title}」，主要涉及：{signal_phrase(title, summary)}；"
+                    "建议重点查看论文摘要、方法图、实验设置和结果表，判断其对研发工作的参考价值。"
+                ),
                 why_important=why_for(source, title, summary),
                 url=link,
                 source_name="arXiv",
@@ -765,11 +846,13 @@ def collect_github_items(config: Config) -> tuple[list[NewsItem], str | None]:
             score += 8
         if score < 42:
             continue
-        clean_description = truncate(description, 240) if description else "仓库描述较少，建议打开 README 快速判断定位、许可证和维护者。"
         items.append(
             NewsItem(
                 title=f"开源项目：{title}",
-                summary=f"GitHub 昨日新建 AI 相关仓库「{title}」。项目描述：{clean_description} Star 数：{stars}。",
+                summary=(
+                    f"GitHub 昨日新建 AI 相关仓库「{title}」，主要涉及：{signal_phrase(title, description)}；"
+                    f"当前 Star 数为 {stars}，建议打开 README 核查功能定位、许可证、维护者和活跃度。"
+                ),
                 why_important=WHY_BY_CATEGORY["开源项目 / GitHub"],
                 url=link,
                 source_name="GitHub",
