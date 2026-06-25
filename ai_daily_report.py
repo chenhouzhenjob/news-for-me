@@ -545,7 +545,7 @@ def parse_feed_items(source: Source, xml_text: str, start: datetime, end: dateti
             source_url=source.source_url,
             category=source.category,
             published_at=published,
-            score=importance_score(source, title, description, config.report_date),
+            score=importance_score(source, title, description, published, config.report_date),
             image_url=image_url,
             image_source_url=image_url or source.source_url,
             image_note=(
@@ -613,7 +613,7 @@ def collect_arxiv_items(config: Config) -> tuple[list[NewsItem], str | None]:
             continue
         if not (start <= published.astimezone(local_tz) < end):
             continue
-        score = importance_score(source, title, summary, config.report_date)
+        score = importance_score(source, title, summary, published, config.report_date)
         if score < 50:
             continue
         clean_title = truncate(strip_html(title), 180)
