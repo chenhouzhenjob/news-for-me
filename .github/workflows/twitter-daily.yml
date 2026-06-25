@@ -24,7 +24,7 @@ jobs:
       SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
       SMTP_FROM: ${{ secrets.SMTP_FROM }}
       RECIPIENT_EMAIL: ${{ secrets.EMAIL_TO || vars.RECIPIENT_EMAIL }}
-      TWITTER_ACCOUNTS: ${{ vars.TWITTER_ACCOUNTS || '@aleabitoreddit,@justinsuntron,@wufantouzi,@sunyuchentron,@elonmusk,@readDonaldTrump' }}
+      TWITTER_ACCOUNTS: ${{ vars.TWITTER_ACCOUNTS || '@aleabitoreddit,@justinsuntron,@wufantouzi,@sunyuchentron,@readDonaldTrump' }}
       TIMEZONE: ${{ vars.TIMEZONE || 'Asia/Shanghai' }}
       MAX_RESULTS_PER_ACCOUNT: ${{ vars.MAX_RESULTS_PER_ACCOUNT || '200' }}
 

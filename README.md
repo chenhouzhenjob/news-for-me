@@ -16,7 +16,7 @@ The script does not fabricate tweets, links, or metrics. If an account has no tw
 
 ## Default configuration
 
-- `TWITTER_ACCOUNTS`: `@aleabitoreddit,@justinsuntron,@wufantouzi,@sunyuchentron,@elonmusk,@readDonaldTrump`
+- `TWITTER_ACCOUNTS`: `@aleabitoreddit,@justinsuntron,@wufantouzi,@sunyuchentron,@readDonaldTrump`
 - `RECIPIENT_EMAIL`: configured recipient address
 - `TIMEZONE`: `Asia/Shanghai`
 - `MAX_RESULTS_PER_ACCOUNT`: `200`
