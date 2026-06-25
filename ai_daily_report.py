@@ -93,11 +93,11 @@ AI_SOURCES = [
     ),
     Source(
         "Anthropic News",
-        "https://www.anthropic.com/news/rss.xml",
+        "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_news.xml",
         "模型 / 产品发布",
         5,
         "https://www.anthropic.com/news",
-        "Anthropic 官方新闻页文章首图。",
+        "Anthropic 官方新闻页文章首图；该 feed 由社区跟踪官方页面生成，原始链接仍指向 Anthropic。",
     ),
     Source(
         "Google AI Blog",
@@ -109,34 +109,42 @@ AI_SOURCES = [
     ),
     Source(
         "Google DeepMind",
-        "https://deepmind.google/discover/blog/rss.xml",
+        "https://deepmind.google/blog/rss.xml",
         "研究 / 模型更新",
         5,
-        "https://deepmind.google/discover/blog/",
+        "https://deepmind.google/blog/",
         "Google DeepMind 博客文章首图。",
     ),
     Source(
         "Microsoft AI Blog",
-        "https://blogs.microsoft.com/ai/feed/",
+        "https://microsoft.ai/blog/feed/",
         "公司动态 / 产品发布",
         5,
-        "https://blogs.microsoft.com/ai/",
+        "https://microsoft.ai/blog/",
         "Microsoft AI Blog 文章首图。",
     ),
     Source(
+        "Microsoft Research Blog",
+        "https://www.microsoft.com/en-us/research/feed/",
+        "研究 / 模型更新",
+        4,
+        "https://www.microsoft.com/en-us/research/blog/",
+        "Microsoft Research Blog 文章首图、论文图或项目截图。",
+    ),
+    Source(
         "Meta AI Blog",
-        "https://ai.meta.com/blog/rss/",
+        "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_meta_ai.xml",
         "研究 / 开源项目",
         5,
         "https://ai.meta.com/blog/",
-        "Meta AI 博客文章首图。",
+        "Meta AI 官方博客文章首图；该 feed 由社区跟踪官方页面生成，原始链接仍指向 Meta AI。",
     ),
     Source(
         "NVIDIA AI Blog",
-        "https://blogs.nvidia.com/blog/category/artificial-intelligence/feed/",
+        "https://blogs.nvidia.com/feed/",
         "算力 / 产业动态",
         5,
-        "https://blogs.nvidia.com/blog/category/artificial-intelligence/",
+        "https://blogs.nvidia.com/",
         "NVIDIA AI Blog 文章首图或配套产品图。",
     ),
     Source(
@@ -149,11 +157,11 @@ AI_SOURCES = [
     ),
     Source(
         "Mistral AI News",
-        "https://mistral.ai/news/rss.xml",
+        "https://raw.githubusercontent.com/0xSMW/rss-feeds/main/feeds/feed_mistral_news.xml",
         "模型 / 产品发布",
         5,
         "https://mistral.ai/news/",
-        "Mistral AI 官方新闻页文章首图。",
+        "Mistral AI 官方新闻页文章首图；该 feed 由社区跟踪官方页面生成，原始链接仍指向 Mistral AI。",
     ),
     Source(
         "GitHub Blog AI",
@@ -205,11 +213,11 @@ AI_SOURCES = [
     ),
     Source(
         "The Batch",
-        "https://www.deeplearning.ai/the-batch/feed/",
+        "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_the_batch.xml",
         "研究 / 行业周报",
         4,
         "https://www.deeplearning.ai/the-batch/",
-        "The Batch 文章插图或原文配图。",
+        "The Batch 文章插图或原文配图；该 feed 由社区跟踪官方页面生成，原始链接仍指向 DeepLearning.AI。",
     ),
 ]
 
@@ -264,6 +272,64 @@ KEYWORD_WEIGHTS = {
     "芯片": 6,
     "算力": 6,
 }
+
+
+AI_RELEVANCE_KEYWORDS = {
+    "ai",
+    "artificial intelligence",
+    "llm",
+    "large language",
+    "language model",
+    "model",
+    "agent",
+    "agents",
+    "copilot",
+    "gpt",
+    "claude",
+    "gemini",
+    "llama",
+    "mistral",
+    "midjourney",
+    "openai",
+    "anthropic",
+    "deepmind",
+    "hugging face",
+    "nvidia",
+    "gpu",
+    "chip",
+    "inference",
+    "training",
+    "multimodal",
+    "diffusion",
+    "robot",
+    "benchmark",
+    "open source",
+    "open-source",
+    "rag",
+    "模型",
+    "大模型",
+    "智能体",
+    "生成式",
+    "开源",
+    "算力",
+    "芯片",
+    "推理",
+    "训练",
+}
+
+
+LOW_VALUE_TITLE_PATTERNS = [
+    r"\bdays?\s+left\s+to\s+save\b",
+    r"\bsave\s+up\s+to\b",
+    r"\bearly\s+bird\b",
+    r"\bregister\s+(now|today)\b",
+    r"\b(ticket|tickets|pass|passes)\b.*\b(save|discount|register|summit)\b",
+    r"\bsponsored\b",
+    r"\bwebinar\b.*\bregister\b",
+    r"优惠",
+    r"折扣",
+    r"报名",
+]
 
 
 WHY_BY_CATEGORY = {
@@ -466,6 +532,16 @@ def normalize_title(value: str) -> str:
     return re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", value)
 
 
+def is_low_value_item(title: str, description: str) -> bool:
+    text = f"{title} {strip_html(description)}".lower()
+    return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in LOW_VALUE_TITLE_PATTERNS)
+
+
+def is_ai_related(title: str, description: str) -> bool:
+    text = f"{title} {strip_html(description)}".lower()
+    return any(keyword.lower() in text for keyword in AI_RELEVANCE_KEYWORDS)
+
+
 def importance_score(source: Source, title: str, summary: str, published: datetime, report_date: date) -> int:
     text = f"{title} {summary}".lower()
     score = source.reliability * 10
@@ -518,6 +594,10 @@ def parse_feed_items(source: Source, xml_text: str, start: datetime, end: dateti
         if not link:
             link = child_attr(entry, {"link"}, "href")
         description = child_text(entry, {"description", "summary", "content", "encoded"})
+        if is_low_value_item(title, description):
+            continue
+        if source.reliability <= 4 and not is_ai_related(title, description):
+            continue
         published_raw = child_text(entry, {"pubdate", "published", "updated", "date"})
         published = parse_datetime(published_raw)
         if not title or not link or not published:
