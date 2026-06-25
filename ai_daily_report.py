@@ -559,7 +559,7 @@ def importance_score(source: Source, title: str, summary: str, published: dateti
 
 def summary_for(source: Source, title: str, description: str) -> str:
     clean_description = truncate(strip_html(description), 260)
-    if clean_description:
+    if len(clean_description) >= 40:
         return f"{source.name} 发布/报道了「{title}」。原文要点：{clean_description}"
     return f"{source.name} 发布/报道了「{title}」，建议结合原文查看细节、适用范围和后续影响。"
 
@@ -574,7 +574,9 @@ def why_for(source: Source, title: str, summary: str) -> str:
         extra.append("开源或开发者生态相关内容有助于快速验证和复用。")
     if any(keyword in text for keyword in ["funding", "raises", "valuation", "融资"]):
         extra.append("融资信息可作为资本流向和赛道热度参考。")
-    if any(keyword in text for keyword in ["regulation", "policy", "regulator", "监管", "政策"]):
+    if source.category != "论文 / 研究" and any(
+        keyword in text for keyword in ["regulation", "policy", "regulator", "监管", "政策"]
+    ):
         extra.append("监管/政策变化可能影响产品合规和市场准入。")
     return " ".join([base, *extra]).strip()
 
