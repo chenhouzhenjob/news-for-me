@@ -1,4 +1,4 @@
-name: AI Daily Report
+name: Twitter Daily Report
 
 on:
   schedule:
@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
+      APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+      APIFY_TWITTER_COOKIE: ${{ secrets.APIFY_TWITTER_COOKIE }}
       SMTP_HOST: ${{ secrets.SMTP_HOST }}
       SMTP_PORT: ${{ secrets.SMTP_PORT }}
       SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
@@ -23,18 +25,17 @@ jobs:
       SMTP_FROM: ${{ secrets.SMTP_FROM }}
       RECIPIENT_EMAIL: ${{ secrets.EMAIL_TO || vars.RECIPIENT_EMAIL }}
       TIMEZONE: ${{ vars.TIMEZONE || 'Asia/Shanghai' }}
-      AI_MAX_ITEMS: ${{ vars.AI_MAX_ITEMS || '12' }}
-      AI_FETCH_ARTICLE_IMAGES: ${{ vars.AI_FETCH_ARTICLE_IMAGES || 'true' }}
-      GITHUB_TOKEN: ${{ github.token }}
+      TWITTER_ACCOUNTS: ${{ vars.TWITTER_ACCOUNTS || '@aleabitoreddit,@justinsuntron,@wufantouzi,@sunyuchentron,@readDonaldTrump' }}
+      MAX_RESULTS_PER_ACCOUNT: ${{ vars.MAX_RESULTS_PER_ACCOUNT || '200' }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Run AI daily report
+      - name: Run Twitter daily report
         run: |
           if [ -n "${{ inputs.report_date }}" ]; then
-            python3 ai_daily_report.py --date "${{ inputs.report_date }}"
+            python3 twitter_daily_report.py --date "${{ inputs.report_date }}"
           else
-            python3 ai_daily_report.py
+            python3 twitter_daily_report.py
           fi

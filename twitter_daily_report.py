@@ -32,7 +32,6 @@ DEFAULT_ACCOUNTS = [
     "@justinsuntron",
     "@wufantouzi",
     "@sunyuchentron",
-    "@elonmusk",
     "@readDonaldTrump",
 ]
 DEFAULT_TIMEZONE = "Asia/Shanghai"
