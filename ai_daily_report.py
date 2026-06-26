@@ -45,6 +45,8 @@ class Source:
     reliability: int
     source_url: str
     image_hint: str
+    requires_ai_match: bool = False
+    ignored_relevance_keywords: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -146,6 +148,8 @@ AI_SOURCES = [
         5,
         "https://blogs.nvidia.com/",
         "NVIDIA AI Blog 文章首图或配套产品图。",
+        requires_ai_match=True,
+        ignored_relevance_keywords=("nvidia",),
     ),
     Source(
         "Hugging Face Blog",
@@ -322,6 +326,9 @@ LOW_VALUE_TITLE_PATTERNS = [
     r"\bdays?\s+left\s+to\s+save\b",
     r"\bsave\s+up\s+to\b",
     r"\bearly\s+bird\b",
+    r"\bsummer\s+sale\b",
+    r"\bsteam\s+sale\b",
+    r"\bdiscounts?\b",
     r"\bregister\s+(now|today)\b",
     r"\b(ticket|tickets|pass|passes)\b.*\b(save|discount|register|summit)\b",
     r"\bsponsored\b",
@@ -340,7 +347,7 @@ WHY_BY_CATEGORY = {
     "算力 / 产业动态": "算力、芯片和基础设施变化会影响训练/推理成本、供给节奏和应用落地速度。",
     "开发者生态 / 开源项目": "开发者工具和开源项目变化会影响工程实践、集成成本和团队效率。",
     "云服务 / 开发者生态": "云厂商能力更新会影响企业部署、成本控制、数据治理和平台选型。",
-    "投融资 / 公司动态": "融资、估值和公司事件可反映资本对 AI 赛道的判断，也可能改变人才、合作和并购预期。",
+    "投融资 / 公司动态": "融资、估值、并购和公司事件可反映 AI 赛道的商业化节奏，也可能改变人才、合作、采购和竞争预期。",
     "产品 / 行业动态": "用户侧产品变化可帮助判断 AI 功能的主流落地场景和竞争重点。",
     "研究 / 监管 / 行业趋势": "研究趋势和监管动向会影响产品合规、安全评估和长期战略判断。",
     "企业 AI / 融资": "企业 AI 采用和融资动态有助于判断真实商业需求、销售周期和落地痛点。",
@@ -444,6 +451,25 @@ def fetch_url(url: str, timeout: int = 30, headers: dict[str, str] | None = None
 def fetch_text(url: str, timeout: int = 30, headers: dict[str, str] | None = None) -> str:
     data = fetch_url(url, timeout=timeout, headers=headers)
     return data.decode("utf-8", "replace")
+
+
+def fetch_text_with_retries(
+    url: str,
+    timeout: int = 30,
+    headers: dict[str, str] | None = None,
+    attempts: int = 2,
+) -> str:
+    last_error: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            return fetch_text(url, timeout=timeout, headers=headers)
+        except Exception as exc:  # noqa: BLE001 - retry only wraps network fetches.
+            last_error = exc
+            if attempt < attempts - 1:
+                time.sleep(1.5 * (attempt + 1))
+    if last_error:
+        raise last_error
+    raise RuntimeError(f"failed to fetch {url}")
 
 
 def strip_html(value: str) -> str:
@@ -620,9 +646,10 @@ def is_low_value_item(title: str, description: str) -> bool:
     return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in LOW_VALUE_TITLE_PATTERNS)
 
 
-def is_ai_related(title: str, description: str) -> bool:
+def is_ai_related(title: str, description: str, ignored_keywords: tuple[str, ...] = ()) -> bool:
     text = f"{title} {strip_html(description)}".lower()
-    return any(keyword.lower() in text for keyword in AI_RELEVANCE_KEYWORDS)
+    ignored = {keyword.lower() for keyword in ignored_keywords}
+    return any(keyword.lower() not in ignored and keyword.lower() in text for keyword in AI_RELEVANCE_KEYWORDS)
 
 
 def importance_score(source: Source, title: str, summary: str, published: datetime, report_date: date) -> int:
@@ -680,7 +707,11 @@ def parse_feed_items(source: Source, xml_text: str, start: datetime, end: dateti
         description = child_text(entry, {"description", "summary", "content", "encoded"})
         if is_low_value_item(title, description):
             continue
-        if source.reliability <= 4 and not is_ai_related(title, description):
+        if (source.requires_ai_match or source.reliability <= 4) and not is_ai_related(
+            title,
+            description,
+            source.ignored_relevance_keywords,
+        ):
             continue
         published_raw = child_text(entry, {"pubdate", "published", "updated", "date"})
         published = parse_datetime(published_raw)
@@ -760,7 +791,7 @@ def collect_arxiv_items(config: Config) -> tuple[list[NewsItem], str | None]:
         "arXiv 论文页、PDF 首页截图，或论文中的核心架构图/结果表。",
     )
     try:
-        xml_text = fetch_text(source.feed_url, timeout=30)
+        xml_text = fetch_text_with_retries(source.feed_url, timeout=45, attempts=3)
         root = ET.fromstring(xml_text)
     except Exception as exc:  # noqa: BLE001
         return [], f"arXiv: {exc}"
