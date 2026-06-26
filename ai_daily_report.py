@@ -603,6 +603,15 @@ def contains_any(text: str, keywords: list[str]) -> bool:
     return any(keyword in text for keyword in keywords)
 
 
+def keyword_matches_text(text: str, keyword: str) -> bool:
+    """Match English AI keywords by token/phrase, and Chinese terms by substring."""
+    keyword = keyword.lower()
+    if any(ord(char) > 127 for char in keyword):
+        return keyword in text
+    escaped = re.escape(keyword)
+    return re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", text) is not None
+
+
 def chinese_signals(title: str, description: str) -> list[str]:
     text = f"{title} {strip_html(description)}".lower()
     signal_rules = [
@@ -686,7 +695,7 @@ def is_low_value_item(title: str, description: str) -> bool:
 
 def is_ai_related(title: str, description: str) -> bool:
     text = f"{title} {strip_html(description)}".lower()
-    return any(keyword.lower() in text for keyword in AI_RELEVANCE_KEYWORDS)
+    return any(keyword_matches_text(text, keyword) for keyword in AI_RELEVANCE_KEYWORDS)
 
 
 def importance_score(source: Source, title: str, summary: str, published: datetime, report_date: date) -> int:
