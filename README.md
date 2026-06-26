@@ -9,7 +9,7 @@ Daily Chinese AI news email automation.
 1. Uses `Asia/Shanghai` by default and reports on "yesterday" from 00:00:00 to 23:59:59.
 2. Collects AI news from official company blogs, trusted AI/tech media RSS feeds, arXiv, and GitHub project discovery.
 3. Prioritizes high-impact model/product releases, company updates, papers, open-source projects, funding, infrastructure, and regulation.
-4. Generates a Chinese email with 5-10 headline bullets, ranked detail cards, clickable source links, image links or screenshot/display suggestions, and extended reading.
+4. Generates a Chinese email with 5-10 headline bullets, ranked detail cards, clickable source links, explicit original-source links, image embeds plus image links or screenshot/display suggestions, and extended reading.
 5. Sends both plain-text Markdown and styled HTML email through SMTP.
 
 The script does not invent links or facts. If a source cannot be fetched, the email includes a collection note.
@@ -32,7 +32,13 @@ Email delivery:
 - Optional: `SMTP_FROM`
 - Optional: `RECIPIENT_EMAIL` or `EMAIL_TO`
 
-GitHub Actions uses repository secrets/variables with the same names. The workflow is configured to run at `0 0 * * *` UTC, which is 08:00 in Beijing.
+GitHub Actions uses repository secrets/variables with the same names. Configure the email integration in repository settings:
+
+1. Add SMTP secrets: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, and optionally `SMTP_FROM`.
+2. Add the recipient as `EMAIL_TO` or `RECIPIENT_EMAIL`.
+3. Optionally set repository variables `TIMEZONE` (`Asia/Shanghai`), `AI_MAX_ITEMS`, and `AI_FETCH_ARTICLE_IMAGES`.
+
+The workflow is configured to run at `0 0 * * *` UTC, which is 08:00 in Beijing.
 
 ## Run locally
 
