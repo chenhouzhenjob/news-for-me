@@ -45,6 +45,7 @@ class Source:
     reliability: int
     source_url: str
     image_hint: str
+    requires_ai_filter: bool = False
 
 
 @dataclass(frozen=True)
@@ -131,6 +132,7 @@ AI_SOURCES = [
         4,
         "https://www.microsoft.com/en-us/research/blog/",
         "Microsoft Research Blog 文章首图、论文图或项目截图。",
+        True,
     ),
     Source(
         "Meta AI Blog",
@@ -147,6 +149,7 @@ AI_SOURCES = [
         5,
         "https://blogs.nvidia.com/",
         "NVIDIA AI Blog 文章首图或配套产品图。",
+        True,
     ),
     Source(
         "Hugging Face Blog",
@@ -600,6 +603,15 @@ def contains_any(text: str, keywords: list[str]) -> bool:
     return any(keyword in text for keyword in keywords)
 
 
+def keyword_matches(text: str, keyword: str) -> bool:
+    """Match English AI keywords as tokens/phrases, and CJK keywords by substring."""
+    keyword = keyword.lower()
+    if any(ord(char) > 127 for char in keyword):
+        return keyword in text
+    escaped = re.escape(keyword)
+    return re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", text) is not None
+
+
 def chinese_signals(title: str, description: str) -> list[str]:
     text = f"{title} {strip_html(description)}".lower()
     signal_rules = [
@@ -683,7 +695,7 @@ def is_low_value_item(title: str, description: str) -> bool:
 
 def is_ai_related(title: str, description: str) -> bool:
     text = f"{title} {strip_html(description)}".lower()
-    return any(keyword.lower() in text for keyword in AI_RELEVANCE_KEYWORDS)
+    return any(keyword_matches(text, keyword) for keyword in AI_RELEVANCE_KEYWORDS)
 
 
 def importance_score(source: Source, title: str, summary: str, published: datetime, report_date: date) -> int:
@@ -808,6 +820,16 @@ def format_summary_html(summary: str) -> str:
     )
 
 
+def format_image_reference_html(item: NewsItem) -> str:
+    note = item.image_note or "建议使用原文首图、产品截图或核心图表作为配图。"
+    if item.image_url:
+        image_link = html_link(item.image_url, "打开图片")
+        source_link = html_link(item.image_source_url or item.url, "图片来源")
+        return f"<p>{image_link}｜{source_link}<br>{html.escape(note)}</p>"
+    source_link = html_link(item.image_source_url or item.url, "打开原文/来源")
+    return f"<p>{html.escape(note)} 参考：{source_link}</p>"
+
+
 def why_for(source: Source, title: str, summary: str) -> str:
     base = WHY_BY_CATEGORY.get(source.category, "该事件可能影响 AI 产品、技术路线或产业判断，适合作为每日情报跟踪。")
     text = f"{title} {summary}".lower()
@@ -842,7 +864,7 @@ def parse_feed_items(source: Source, xml_text: str, start: datetime, end: dateti
         description = child_text(entry, {"description", "summary", "content", "encoded"})
         if is_low_value_item(title, description):
             continue
-        if source.reliability <= 4 and not is_ai_related(title, description):
+        if (source.requires_ai_filter or source.reliability <= 4) and not is_ai_related(title, description):
             continue
         published_raw = child_text(entry, {"pubdate", "published", "updated", "date"})
         published = parse_datetime(published_raw)
@@ -1079,6 +1101,16 @@ def markdown_link(url: str, text: str) -> str:
     return f"[{escaped_text}]({url})"
 
 
+def image_reference_markdown(item: NewsItem) -> str:
+    note = item.image_note or "建议使用原文首图、产品截图或核心图表作为配图。"
+    if item.image_url:
+        image_link = markdown_link(item.image_url, "打开图片")
+        source_link = markdown_link(item.image_source_url or item.url, "图片来源")
+        return f"{image_link}｜{source_link}。{note}"
+    source_link = markdown_link(item.image_source_url or item.url, "打开原文/来源")
+    return f"{note} 参考：{source_link}"
+
+
 def render_markdown(config: Config, items: list[NewsItem], extension_items: list[NewsItem], errors: list[str]) -> str:
     start, end = report_window(config)
     subject_date = config.report_date.isoformat()
@@ -1106,6 +1138,7 @@ def render_markdown(config: Config, items: list[NewsItem], extension_items: list
                     f"- 来源：{item.source_name}｜发布时间：{published_local:%Y-%m-%d %H:%M %Z}",
                     f"- 简短摘要：{item.summary}",
                     f"- 为什么重要：{item.why_important}",
+                    f"- 配图/截图：{image_reference_markdown(item)}",
                     "",
                 ]
             )
@@ -1147,7 +1180,7 @@ def render_item_card(item: NewsItem, index: int, config: Config) -> str:
             alt=html.escape(item.title, quote=True),
         )
     else:
-        image_block = '<div class="image-placeholder">暂无配图</div>'
+        image_block = '<div class="image-placeholder">暂无自动配图，见下方配图建议</div>'
 
     return f"""
     <article class="card">
@@ -1157,6 +1190,7 @@ def render_item_card(item: NewsItem, index: int, config: Config) -> str:
         <h3>{index}. {html_link(item.url, item.title)}</h3>
         <div class="section"><b>简短摘要</b>{format_summary_html(item.summary)}</div>
         <div class="section"><b>为什么重要</b><p>{html.escape(item.why_important)}</p></div>
+        <div class="section image-meta"><b>配图/截图</b>{format_image_reference_html(item)}</div>
       </div>
     </article>
     """
@@ -1195,6 +1229,9 @@ def render_html(config: Config, items: list[NewsItem], extension_items: list[New
         errors_html = "<h2>采集备注</h2><ul>" + "".join(
             f"<li>{html.escape(error)}</li>" for error in errors[:10]
         ) + "</ul>"
+    test_banner = ""
+    if config.test_mode:
+        test_banner = '<div class="test-banner">测试邮件：用于确认 AI 日报排版、图片和链接是否正常。</div>'
 
     return f"""<!doctype html>
 <html>
@@ -1222,6 +1259,15 @@ def render_html(config: Config, items: list[NewsItem], extension_items: list[New
     .eyebrow {{ color: #bfdbfe; font-size: 12px; letter-spacing: 1.7px; text-transform: uppercase; font-weight: 800; }}
     h1 {{ margin: 8px 0 10px; font-size: 30px; line-height: 1.25; }}
     .window {{ color: #dbeafe; margin: 0; }}
+    .test-banner {{
+      margin: 18px 0 0;
+      padding: 12px 16px;
+      border-radius: 16px;
+      color: #92400e;
+      background: #fffbeb;
+      border: 1px solid #fbbf24;
+      font-weight: 800;
+    }}
     h2 {{
       margin: 30px 0 14px;
       padding-left: 12px;
@@ -1285,6 +1331,7 @@ def render_html(config: Config, items: list[NewsItem], extension_items: list[New
     .section {{ margin-top: 12px; padding-top: 12px; border-top: 1px solid #eef2f7; }}
     .section b {{ color: #334155; }}
     .section p {{ margin: 5px 0 0; }}
+    .image-meta p {{ color: #475569; }}
     .empty, .footer-note, ul.reading, .errors {{
       padding: 16px 20px;
       border-radius: 18px;
@@ -1308,6 +1355,7 @@ def render_html(config: Config, items: list[NewsItem], extension_items: list[New
       <h1>AI 日报：{html.escape(subject_date)}</h1>
       <p class="window">统计窗口：{start:%Y-%m-%d %H:%M:%S %Z} 至 {(end - timedelta(seconds=1)):%Y-%m-%d %H:%M:%S %Z}</p>
     </div>
+    {test_banner}
     <h2>今日重点摘要</h2>
     <ol class="summary">{summary_html}</ol>
     <h2>重要动态</h2>
