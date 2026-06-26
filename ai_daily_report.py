@@ -75,6 +75,7 @@ class NewsItem:
     category: str
     published_at: datetime
     score: int
+    description: str = ""
     image_url: str = ""
     image_source_url: str = ""
     image_note: str = ""
@@ -331,6 +332,66 @@ LOW_VALUE_TITLE_PATTERNS = [
     r"报名",
 ]
 
+
+JARGON_GLOSSARY: dict[str, str] = {
+    "MoE": "混合专家模型（Mixture of Experts），通过多个子模型按需激活以提升容量与推理效率。",
+    "RLHF": "基于人类反馈的强化学习，用于让大模型输出更符合人类偏好与安全要求。",
+    "RAG": "检索增强生成，在生成回答前先从外部知识库检索相关内容以提升准确性与时效性。",
+    "LoRA": "低秩适配，一种轻量微调方法，用少量参数让预训练模型适应新任务。",
+    "ASR": "自动语音识别，将语音信号转换为文本的技术。",
+    "OCR": "光学字符识别，从图像中提取文字信息。",
+    "VLM": "视觉语言模型，能同时理解图像与文本的多模态大模型。",
+    "LLM": "大语言模型，基于海量文本训练、具备通用语言理解与生成能力的神经网络模型。",
+    "GPT": "生成式预训练 Transformer，OpenAI 系列大语言模型的产品与技术代称。",
+    "Transformer": "一种基于自注意力机制的神经网络架构，是现代大语言模型的基础。",
+    "diffusion": "扩散模型，通过逐步去噪生成图像、视频等内容的主流生成式 AI 方法。",
+    "embedding": "嵌入向量，将文本、图像等离散数据映射为可计算的连续向量表示。",
+    "fine-tuning": "微调，在预训练模型基础上用特定数据继续训练以适应下游任务。",
+    "inference": "推理，模型训练完成后用于实际预测或生成输出的运行阶段。",
+    "token": "词元，大模型处理文本的最小单位，也是计费与上下文长度的计量单位。",
+    "context window": "上下文窗口，模型单次可处理的输入与输出 token 总量上限。",
+    "agentic": "智能体式，指 AI 能自主规划、调用工具并完成多步骤任务的能力范式。",
+    "SOTA": "State of the Art，当前公开基准上的最优水平。",
+    "benchmark": "基准测试，用标准化数据集与指标评估模型或系统性能。",
+    "quantization": "量化，通过降低数值精度压缩模型体积并加速推理的技术。",
+    "distillation": "知识蒸馏，让小模型学习大模型的行为以在更小算力下逼近性能。",
+    "multimodal": "多模态，同时处理文本、图像、音频等多种数据类型的 AI 能力。",
+    "AGI": "通用人工智能，能在广泛任务上达到或超越人类水平的 AI 目标概念。",
+    "HNSW": "分层可导航小世界图，常用于向量数据库的高效近似最近邻检索。",
+    "FP8": "8 位浮点格式，用于降低训练与推理显存占用的低精度数值格式。",
+    "KV cache": "键值缓存，大模型自回归推理时缓存历史注意力状态以加速生成的技术。",
+}
+
+JARGON_TERM_PATTERNS: list[tuple[str, str]] = [
+    (r"\bMoE\b", "MoE"),
+    (r"\bRLHF\b", "RLHF"),
+    (r"\bRAG\b", "RAG"),
+    (r"\bLoRA\b", "LoRA"),
+    (r"\bASR\b", "ASR"),
+    (r"\bOCR\b", "OCR"),
+    (r"\bVLM\b", "VLM"),
+    (r"\bLLMs?\b", "LLM"),
+    (r"\bGPT-?\d*\b", "GPT"),
+    (r"\bTransformers?\b", "Transformer"),
+    (r"\bdiffusion\b", "diffusion"),
+    (r"\bembeddings?\b", "embedding"),
+    (r"\bfine-?tuning\b", "fine-tuning"),
+    (r"\binference\b", "inference"),
+    (r"\btokens?\b", "token"),
+    (r"context\s+window", "context window"),
+    (r"\bagentic\b", "agentic"),
+    (r"\bSOTA\b", "SOTA"),
+    (r"\bbenchmarks?\b", "benchmark"),
+    (r"\bquantization\b", "quantization"),
+    (r"\bdistillation\b", "distillation"),
+    (r"\bmultimodal\b", "multimodal"),
+    (r"\bAGI\b", "AGI"),
+    (r"\bHNSW\b", "HNSW"),
+    (r"\bFP8\b", "FP8"),
+    (r"\bKV\s+cache\b", "KV cache"),
+]
+
+_WIKI_EXPLANATION_CACHE: dict[str, str | None] = {}
 
 WHY_BY_CATEGORY = {
     "模型 / 产品发布": "可能改变模型能力、产品形态或开发者调用方式，值得 AI 从业者评估对现有工作流和产品路线的影响。",
@@ -640,10 +701,111 @@ def importance_score(source: Source, title: str, summary: str, published: dateti
     return score
 
 
-def summary_for(source: Source, title: str, description: str) -> str:
-    signals = signal_phrase(title, description)
-    action = action_phrase(title, description)
-    return f"{source.name} {action}，主题为「{title}」，主要涉及：{signals}；建议打开原文核对具体能力、适用范围和后续影响。"
+def truncate_at_sentence(value: str, limit: int = 320) -> str:
+    value = re.sub(r"\s+", " ", strip_html(value)).strip()
+    if not value:
+        return ""
+    if len(value) <= limit:
+        return value
+    chunk = value[:limit]
+    for separator in ["。", ". ", "；", "; ", "！", "! "]:
+        index = chunk.rfind(separator)
+        if index > limit * 0.45:
+            return chunk[: index + len(separator)].strip()
+    return chunk.rstrip() + "..."
+
+
+def detailed_summary_for(source: Source, title: str, description: str) -> str:
+    clean_title = strip_html(title)
+    clean_description = truncate_at_sentence(description, 320)
+    action = action_phrase(clean_title, description)
+    signals = signal_phrase(clean_title, description)
+    parts = [f"{source.name} {action}"]
+    if clean_description:
+        parts.append(f"原文要点：{clean_description}")
+    else:
+        parts.append(f"主题为「{truncate(clean_title, 160)}」")
+    parts.append(f"主要涉及：{signals}")
+    parts.append("建议打开原文核对具体能力、适用范围和后续影响。")
+    return "。".join(parts[:-1]) + "。" + parts[-1]
+
+
+def extract_jargon_terms(title: str, description: str) -> list[str]:
+    text = f"{title} {strip_html(description)}"
+    terms: list[str] = []
+    for pattern, term in JARGON_TERM_PATTERNS:
+        if re.search(pattern, text, flags=re.IGNORECASE) and term not in terms:
+            terms.append(term)
+        if len(terms) >= 2:
+            break
+    return terms[:2]
+
+
+def lookup_wikipedia_summary(term: str, language: str) -> str | None:
+    encoded = urllib.parse.quote(term.replace(" ", "_"))
+    url = f"https://{language}.wikipedia.org/api/rest_v1/page/summary/{encoded}"
+    try:
+        payload = json.loads(fetch_text(url, timeout=2))
+    except Exception:  # noqa: BLE001 - lookup failures should not block report generation.
+        return None
+    if payload.get("type") == "disambiguation":
+        return None
+    extract = str(payload.get("extract") or "").strip()
+    if not extract:
+        return None
+    return truncate(extract, 120)
+
+
+def lookup_term_explanation(term: str, wiki_budget: list[int]) -> str | None:
+    if term in _WIKI_EXPLANATION_CACHE:
+        return _WIKI_EXPLANATION_CACHE[term]
+
+    explanation = JARGON_GLOSSARY.get(term)
+    if not explanation and wiki_budget[0] > 0:
+        wiki_budget[0] -= 1
+        explanation = lookup_wikipedia_summary(term, "zh")
+        if not explanation and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9\s\-/]*", term):
+            explanation = lookup_wikipedia_summary(term, "en")
+
+    _WIKI_EXPLANATION_CACHE[term] = explanation
+    return explanation
+
+
+def enrich_summary_with_glossary(summary: str, title: str, description: str, wiki_budget: list[int]) -> str:
+    notes: list[str] = []
+    for term in extract_jargon_terms(title, description):
+        explanation = lookup_term_explanation(term, wiki_budget)
+        if explanation:
+            notes.append(f"{term} — {explanation}")
+    if not notes:
+        return summary
+    return summary + "\n\n**术语说明**：" + "；".join(notes)
+
+
+def headline_for(item: NewsItem) -> str:
+    description = item.description or str(item.metadata.get("description", ""))
+    action = action_phrase(item.title, description)
+    signals = signal_phrase(item.title, description)
+    short_title = truncate(strip_html(item.title), 120)
+    return f"{item.source_name} {action}：{short_title}，主要涉及{signals}。"
+
+
+def enrich_item_summaries(items: list[NewsItem], max_wiki_lookups: int = 6) -> None:
+    wiki_budget = [max_wiki_lookups]
+    for item in sorted(items, key=lambda current: current.score, reverse=True):
+        description = item.description or str(item.metadata.get("description", ""))
+        item.summary = enrich_summary_with_glossary(item.summary, item.title, description, wiki_budget)
+
+
+def format_summary_html(summary: str) -> str:
+    marker = "\n\n**术语说明**："
+    if marker not in summary:
+        return f"<p>{html.escape(summary)}</p>"
+    main_text, glossary_text = summary.split(marker, 1)
+    return (
+        f"<p>{html.escape(main_text.strip())}</p>"
+        f"<p><b>术语说明</b>：{html.escape(glossary_text.strip())}</p>"
+    )
 
 
 def why_for(source: Source, title: str, summary: str) -> str:
@@ -699,7 +861,7 @@ def parse_feed_items(source: Source, xml_text: str, start: datetime, end: dateti
             except Exception:
                 image_url = ""
 
-        summary = summary_for(source, strip_html(title), description)
+        summary = detailed_summary_for(source, strip_html(title), description)
         item = NewsItem(
             title=strip_html(title),
             summary=summary,
@@ -710,6 +872,7 @@ def parse_feed_items(source: Source, xml_text: str, start: datetime, end: dateti
             category=source.category,
             published_at=published,
             score=importance_score(source, title, description, published, config.report_date),
+            description=strip_html(description),
             image_url=image_url,
             image_source_url=image_url or source.source_url,
             image_note=(
@@ -781,13 +944,11 @@ def collect_arxiv_items(config: Config) -> tuple[list[NewsItem], str | None]:
         if score < 50:
             continue
         clean_title = truncate(strip_html(title), 180)
+        paper_summary = detailed_summary_for(source, clean_title, summary)
         items.append(
             NewsItem(
                 title=f"论文：{clean_title}",
-                summary=(
-                    f"arXiv 新提交论文「{clean_title}」，主要涉及：{signal_phrase(title, summary)}；"
-                    "建议重点查看论文摘要、方法图、实验设置和结果表，判断其对研发工作的参考价值。"
-                ),
+                summary=paper_summary,
                 why_important=why_for(source, title, summary),
                 url=link,
                 source_name="arXiv",
@@ -795,6 +956,7 @@ def collect_arxiv_items(config: Config) -> tuple[list[NewsItem], str | None]:
                 category=source.category,
                 published_at=published,
                 score=score,
+                description=strip_html(summary),
                 image_source_url=link,
                 image_note="建议使用论文 PDF 首页截图，或截取论文中的核心方法图/结果表作为配图。",
                 metadata={"kind": "paper"},
@@ -846,13 +1008,16 @@ def collect_github_items(config: Config) -> tuple[list[NewsItem], str | None]:
             score += 8
         if score < 42:
             continue
+        repo_summary = detailed_summary_for(source, title, description)
+        if stars:
+            repo_summary = repo_summary.replace(
+                "建议打开原文核对具体能力、适用范围和后续影响。",
+                f"当前 Star 数为 {stars}。建议打开 README 核查功能定位、许可证、维护者和活跃度。",
+            )
         items.append(
             NewsItem(
                 title=f"开源项目：{title}",
-                summary=(
-                    f"GitHub 昨日新建 AI 相关仓库「{title}」，主要涉及：{signal_phrase(title, description)}；"
-                    f"当前 Star 数为 {stars}，建议打开 README 核查功能定位、许可证、维护者和活跃度。"
-                ),
+                summary=repo_summary,
                 why_important=WHY_BY_CATEGORY["开源项目 / GitHub"],
                 url=link,
                 source_name="GitHub",
@@ -860,6 +1025,7 @@ def collect_github_items(config: Config) -> tuple[list[NewsItem], str | None]:
                 category=source.category,
                 published_at=created,
                 score=score,
+                description=description,
                 image_source_url=link,
                 image_note="建议使用仓库 README 顶部截图、项目 logo 或 GitHub Star/活跃度截图作为配图。",
                 metadata={"stars": stars},
@@ -900,6 +1066,7 @@ def collect_news(config: Config) -> tuple[list[NewsItem], list[NewsItem], list[s
     main_items = ranked[: config.max_items]
     main_urls = {canonical_url(item.url) for item in main_items}
     extension_items = [item for item in ranked[config.max_items :] if canonical_url(item.url) not in main_urls]
+    enrich_item_summaries([*main_items, *extension_items[:12]])
     return main_items, extension_items[:12], errors
 
 
@@ -920,13 +1087,11 @@ def render_markdown(config: Config, items: list[NewsItem], extension_items: list
         "",
         f"统计窗口：{start:%Y-%m-%d %H:%M:%S %Z} 至 {(end - timedelta(seconds=1)):%Y-%m-%d %H:%M:%S %Z}",
     ]
-    if config.test_mode:
-        lines.extend(["", "测试说明：这是发送集成和邮件排版验证邮件，用于确认图片、链接与样式是否正常。"])
 
     lines.extend(["", "## 今日重点摘要"])
     if items:
         for item in items[: min(10, max(5, len(items)))]:
-            lines.append(f"- {item.category}｜{item.title}（来源：{item.source_name}）")
+            lines.append(f"- **{item.category}**：{headline_for(item)}")
     else:
         lines.append("- 昨天未从配置的信息源中采集到足够可靠的 AI 重要事件。")
 
@@ -936,14 +1101,11 @@ def render_markdown(config: Config, items: list[NewsItem], extension_items: list
             published_local = item.published_at.astimezone(ZoneInfo(config.timezone_name))
             lines.extend(
                 [
-                    f"### {index}. {item.title}",
+                    f"### {index}. {markdown_link(item.url, item.title)}",
                     f"- 类别：{item.category}",
                     f"- 来源：{item.source_name}｜发布时间：{published_local:%Y-%m-%d %H:%M %Z}",
                     f"- 简短摘要：{item.summary}",
                     f"- 为什么重要：{item.why_important}",
-                    f"- 原始信息链接：{markdown_link(item.url, item.url)}",
-                    f"- 配图/截图：{markdown_link(item.image_source_url or item.url, item.image_source_url or item.url)}",
-                    f"- 展示建议：{item.image_note}",
                     "",
                 ]
             )
@@ -985,24 +1147,16 @@ def render_item_card(item: NewsItem, index: int, config: Config) -> str:
             alt=html.escape(item.title, quote=True),
         )
     else:
-        image_block = (
-            '<div class="image-placeholder">'
-            "<strong>配图建议</strong>"
-            f"<p>{html.escape(item.image_note)}</p>"
-            f"{html_link(item.image_source_url or item.url, '打开图片/截图来源')}"
-            "</div>"
-        )
+        image_block = '<div class="image-placeholder">暂无配图</div>'
 
     return f"""
     <article class="card">
       {image_block}
       <div class="card-body">
         <div class="meta"><span>{html.escape(item.category)}</span><span>{html.escape(item.source_name)}</span><span>{published_local:%Y-%m-%d %H:%M %Z}</span></div>
-        <h3>{index}. {html.escape(item.title)}</h3>
-        <div class="section"><b>简短摘要</b><p>{html.escape(item.summary)}</p></div>
+        <h3>{index}. {html_link(item.url, item.title)}</h3>
+        <div class="section"><b>简短摘要</b>{format_summary_html(item.summary)}</div>
         <div class="section"><b>为什么重要</b><p>{html.escape(item.why_important)}</p></div>
-        <div class="section source"><b>原始信息链接</b><p>{html_link(item.url, item.url)}</p></div>
-        <div class="section"><b>图片来源 / 展示方式</b><p>{html_link(item.image_source_url or item.url, item.image_source_url or item.url)}<br>{html.escape(item.image_note)}</p></div>
       </div>
     </article>
     """
@@ -1013,7 +1167,8 @@ def render_html(config: Config, items: list[NewsItem], extension_items: list[New
     subject_date = config.report_date.isoformat()
     summary_items = items[: min(10, max(5, len(items)))]
     summary_html = "\n".join(
-        f'<li><span>{html.escape(item.category)}</span>{html.escape(item.title)}</li>' for item in summary_items
+        f'<li><span>{html.escape(item.category)}</span>{html.escape(headline_for(item))}</li>'
+        for item in summary_items
     )
     if not summary_html:
         summary_html = "<li>昨天未从配置的信息源中采集到足够可靠的 AI 重要事件。</li>"
@@ -1041,12 +1196,6 @@ def render_html(config: Config, items: list[NewsItem], extension_items: list[New
             f"<li>{html.escape(error)}</li>" for error in errors[:10]
         ) + "</ul>"
 
-    test_banner = (
-        '<div class="test-banner">测试说明：这是发送集成和邮件排版验证邮件，用于确认图片、链接与样式是否正常。</div>'
-        if config.test_mode
-        else ""
-    )
-
     return f"""<!doctype html>
 <html>
 <head>
@@ -1073,15 +1222,6 @@ def render_html(config: Config, items: list[NewsItem], extension_items: list[New
     .eyebrow {{ color: #bfdbfe; font-size: 12px; letter-spacing: 1.7px; text-transform: uppercase; font-weight: 800; }}
     h1 {{ margin: 8px 0 10px; font-size: 30px; line-height: 1.25; }}
     .window {{ color: #dbeafe; margin: 0; }}
-    .test-banner {{
-      margin: 16px 0;
-      padding: 12px 16px;
-      border-radius: 14px;
-      background: #fffbeb;
-      color: #92400e;
-      border: 1px solid #fbbf24;
-      font-weight: 800;
-    }}
     h2 {{
       margin: 30px 0 14px;
       padding-left: 12px;
@@ -1124,12 +1264,13 @@ def render_html(config: Config, items: list[NewsItem], extension_items: list[New
       border: 0;
     }}
     .image-placeholder {{
-      padding: 18px;
-      background: repeating-linear-gradient(135deg, #f8fafc, #f8fafc 12px, #eef2f7 12px, #eef2f7 24px);
+      padding: 14px 18px;
+      background: #f8fafc;
       border-bottom: 1px solid #e5e7eb;
-      color: #475569;
+      color: #94a3b8;
+      font-size: 13px;
+      text-align: center;
     }}
-    .image-placeholder p {{ margin: 6px 0; }}
     .card-body {{ padding: 20px; }}
     .meta {{ display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }}
     .meta span {{
@@ -1144,7 +1285,6 @@ def render_html(config: Config, items: list[NewsItem], extension_items: list[New
     .section {{ margin-top: 12px; padding-top: 12px; border-top: 1px solid #eef2f7; }}
     .section b {{ color: #334155; }}
     .section p {{ margin: 5px 0 0; }}
-    .source p {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 13px; }}
     .empty, .footer-note, ul.reading, .errors {{
       padding: 16px 20px;
       border-radius: 18px;
@@ -1168,7 +1308,6 @@ def render_html(config: Config, items: list[NewsItem], extension_items: list[New
       <h1>AI 日报：{html.escape(subject_date)}</h1>
       <p class="window">统计窗口：{start:%Y-%m-%d %H:%M:%S %Z} 至 {(end - timedelta(seconds=1)):%Y-%m-%d %H:%M:%S %Z}</p>
     </div>
-    {test_banner}
     <h2>今日重点摘要</h2>
     <ol class="summary">{summary_html}</ol>
     <h2>重要动态</h2>

@@ -48,7 +48,7 @@ Send the email:
 python3 ai_daily_report.py
 ```
 
-Send a test email with a test marker in the subject:
+Send a test email with a `【测试】` prefix in the subject:
 
 ```bash
 python3 ai_daily_report.py --test
