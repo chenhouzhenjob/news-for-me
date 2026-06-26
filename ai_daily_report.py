@@ -45,6 +45,7 @@ class Source:
     reliability: int
     source_url: str
     image_hint: str
+    requires_ai_filter: bool = False
 
 
 @dataclass(frozen=True)
@@ -131,6 +132,7 @@ AI_SOURCES = [
         4,
         "https://www.microsoft.com/en-us/research/blog/",
         "Microsoft Research Blog 文章首图、论文图或项目截图。",
+        True,
     ),
     Source(
         "Meta AI Blog",
@@ -147,6 +149,7 @@ AI_SOURCES = [
         5,
         "https://blogs.nvidia.com/",
         "NVIDIA AI Blog 文章首图或配套产品图。",
+        True,
     ),
     Source(
         "Hugging Face Blog",
@@ -861,7 +864,7 @@ def parse_feed_items(source: Source, xml_text: str, start: datetime, end: dateti
         description = child_text(entry, {"description", "summary", "content", "encoded"})
         if is_low_value_item(title, description):
             continue
-        if source.reliability <= 4 and not is_ai_related(title, description):
+        if (source.requires_ai_filter or source.reliability <= 4) and not is_ai_related(title, description):
             continue
         published_raw = child_text(entry, {"pubdate", "published", "updated", "date"})
         published = parse_datetime(published_raw)
