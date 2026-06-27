@@ -597,7 +597,17 @@ def normalize_title(value: str) -> str:
 
 
 def contains_any(text: str, keywords: list[str]) -> bool:
-    return any(keyword in text for keyword in keywords)
+    return any(keyword_matches(text, keyword) for keyword in keywords)
+
+
+def keyword_matches(text: str, keyword: str) -> bool:
+    """Match English keywords by token/phrase, Chinese keywords by substring."""
+    lowered_text = text.lower()
+    lowered_keyword = keyword.lower()
+    if any(ord(char) > 127 for char in lowered_keyword):
+        return lowered_keyword in lowered_text
+    escaped = re.escape(lowered_keyword)
+    return re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", lowered_text) is not None
 
 
 def chinese_signals(title: str, description: str) -> list[str]:
@@ -683,14 +693,14 @@ def is_low_value_item(title: str, description: str) -> bool:
 
 def is_ai_related(title: str, description: str) -> bool:
     text = f"{title} {strip_html(description)}".lower()
-    return any(keyword.lower() in text for keyword in AI_RELEVANCE_KEYWORDS)
+    return any(keyword_matches(text, keyword) for keyword in AI_RELEVANCE_KEYWORDS)
 
 
 def importance_score(source: Source, title: str, summary: str, published: datetime, report_date: date) -> int:
     text = f"{title} {summary}".lower()
     score = source.reliability * 10
     for keyword, weight in KEYWORD_WEIGHTS.items():
-        if keyword.lower() in text:
+        if keyword_matches(text, keyword):
             score += weight
     if source.reliability >= 5:
         score += 6
@@ -812,15 +822,13 @@ def why_for(source: Source, title: str, summary: str) -> str:
     base = WHY_BY_CATEGORY.get(source.category, "该事件可能影响 AI 产品、技术路线或产业判断，适合作为每日情报跟踪。")
     text = f"{title} {summary}".lower()
     extra = []
-    if any(keyword in text for keyword in ["release", "launch", "released", "launched", "发布", "上线"]):
+    if contains_any(text, ["release", "launch", "released", "launched", "发布", "上线"]):
         extra.append("这是明确的发布/上线信号。")
-    if any(keyword in text for keyword in ["open source", "open-source", "github", "开源"]):
+    if contains_any(text, ["open source", "open-source", "github", "开源"]):
         extra.append("开源或开发者生态相关内容有助于快速验证和复用。")
-    if any(keyword in text for keyword in ["funding", "raises", "valuation", "融资"]):
+    if contains_any(text, ["funding", "raises", "valuation", "融资"]):
         extra.append("融资信息可作为资本流向和赛道热度参考。")
-    if source.category != "论文 / 研究" and any(
-        keyword in text for keyword in ["regulation", "policy", "regulator", "监管", "政策"]
-    ):
+    if source.category != "论文 / 研究" and contains_any(text, ["regulation", "policy", "regulator", "监管", "政策"]):
         extra.append("监管/政策变化可能影响产品合规和市场准入。")
     return " ".join([base, *extra]).strip()
 
@@ -1004,7 +1012,7 @@ def collect_github_items(config: Config) -> tuple[list[NewsItem], str | None]:
         score = 38 + min(stars, 200) // 10
         if description:
             score += 4
-        if any(keyword in f"{title} {description}".lower() for keyword in ["agent", "llm", "rag", "inference", "benchmark"]):
+        if contains_any(f"{title} {description}".lower(), ["agent", "llm", "rag", "inference", "benchmark"]):
             score += 8
         if score < 42:
             continue
@@ -1079,6 +1087,27 @@ def markdown_link(url: str, text: str) -> str:
     return f"[{escaped_text}]({url})"
 
 
+def image_markdown(item: NewsItem) -> str:
+    if item.image_url:
+        return (
+            f"{markdown_link(item.image_url, '原文配图 / 缩略图')}；"
+            f"图片来源：{markdown_link(item.image_source_url or item.url, item.source_name)}"
+        )
+    source_url = item.image_source_url or item.source_url or item.url
+    return f"{item.image_note} 参考来源：{markdown_link(source_url, item.source_name)}"
+
+
+def image_html(item: NewsItem) -> str:
+    if item.image_url:
+        image_source = item.image_source_url or item.url
+        return (
+            f"{html_link(item.image_url, '原文配图 / 缩略图')}；"
+            f"图片来源：{html_link(image_source, item.source_name)}"
+        )
+    source_url = item.image_source_url or item.source_url or item.url
+    return f"{html.escape(item.image_note)} 参考来源：{html_link(source_url, item.source_name)}"
+
+
 def render_markdown(config: Config, items: list[NewsItem], extension_items: list[NewsItem], errors: list[str]) -> str:
     start, end = report_window(config)
     subject_date = config.report_date.isoformat()
@@ -1106,6 +1135,8 @@ def render_markdown(config: Config, items: list[NewsItem], extension_items: list
                     f"- 来源：{item.source_name}｜发布时间：{published_local:%Y-%m-%d %H:%M %Z}",
                     f"- 简短摘要：{item.summary}",
                     f"- 为什么重要：{item.why_important}",
+                    f"- 原始链接：{markdown_link(item.url, item.url)}",
+                    f"- 配图 / 截图：{image_markdown(item)}",
                     "",
                 ]
             )
@@ -1157,6 +1188,8 @@ def render_item_card(item: NewsItem, index: int, config: Config) -> str:
         <h3>{index}. {html_link(item.url, item.title)}</h3>
         <div class="section"><b>简短摘要</b>{format_summary_html(item.summary)}</div>
         <div class="section"><b>为什么重要</b><p>{html.escape(item.why_important)}</p></div>
+        <div class="section"><b>原始链接</b><p>{html_link(item.url, item.url)}</p></div>
+        <div class="section"><b>配图 / 截图</b><p>{image_html(item)}</p></div>
       </div>
     </article>
     """
