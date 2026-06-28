@@ -1079,6 +1079,15 @@ def markdown_link(url: str, text: str) -> str:
     return f"[{escaped_text}]({url})"
 
 
+def image_reference_markdown(item: NewsItem) -> str:
+    if item.image_url:
+        note = item.image_note or "建议使用原文首图作为配图。"
+        return f"{markdown_link(item.image_url, '图片链接')}（{note}）"
+    source_url = item.image_source_url or item.source_url or item.url
+    note = item.image_note or "建议打开原文截取产品截图、论文图、图表或项目 README 图作为配图。"
+    return f"{note} 参考：{markdown_link(source_url, '可用截图/配图来源')}"
+
+
 def render_markdown(config: Config, items: list[NewsItem], extension_items: list[NewsItem], errors: list[str]) -> str:
     start, end = report_window(config)
     subject_date = config.report_date.isoformat()
@@ -1106,6 +1115,7 @@ def render_markdown(config: Config, items: list[NewsItem], extension_items: list
                     f"- 来源：{item.source_name}｜发布时间：{published_local:%Y-%m-%d %H:%M %Z}",
                     f"- 简短摘要：{item.summary}",
                     f"- 为什么重要：{item.why_important}",
+                    f"- 配图/截图：{image_reference_markdown(item)}",
                     "",
                 ]
             )
@@ -1147,7 +1157,9 @@ def render_item_card(item: NewsItem, index: int, config: Config) -> str:
             alt=html.escape(item.title, quote=True),
         )
     else:
-        image_block = '<div class="image-placeholder">暂无配图</div>'
+        image_block = '<div class="image-placeholder">建议使用原文截图、图表或项目页面作为配图</div>'
+    image_source_url = item.image_url or item.image_source_url or item.source_url or item.url
+    image_note = item.image_note or "建议打开原文截取产品截图、论文图、图表或项目 README 图作为配图。"
 
     return f"""
     <article class="card">
@@ -1157,6 +1169,7 @@ def render_item_card(item: NewsItem, index: int, config: Config) -> str:
         <h3>{index}. {html_link(item.url, item.title)}</h3>
         <div class="section"><b>简短摘要</b>{format_summary_html(item.summary)}</div>
         <div class="section"><b>为什么重要</b><p>{html.escape(item.why_important)}</p></div>
+        <div class="section"><b>配图/截图</b><p>{html.escape(image_note)} 参考：{html_link(image_source_url, '可点击图片或截图来源')}</p></div>
       </div>
     </article>
     """
