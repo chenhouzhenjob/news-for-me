@@ -1079,6 +1079,18 @@ def markdown_link(url: str, text: str) -> str:
     return f"[{escaped_text}]({url})"
 
 
+def image_reference_url(item: NewsItem) -> str:
+    return item.image_url or item.image_source_url or item.source_url or item.url
+
+
+def image_guidance_text(item: NewsItem) -> str:
+    if item.image_note:
+        return item.image_note
+    if item.image_url:
+        return "已自动提取原文首图作为配图。"
+    return "建议打开原文或来源页面截取产品图、论文图表、项目 README 或公司公告配图。"
+
+
 def render_markdown(config: Config, items: list[NewsItem], extension_items: list[NewsItem], errors: list[str]) -> str:
     start, end = report_window(config)
     subject_date = config.report_date.isoformat()
@@ -1106,6 +1118,7 @@ def render_markdown(config: Config, items: list[NewsItem], extension_items: list
                     f"- 来源：{item.source_name}｜发布时间：{published_local:%Y-%m-%d %H:%M %Z}",
                     f"- 简短摘要：{item.summary}",
                     f"- 为什么重要：{item.why_important}",
+                    f"- 配图/截图：{markdown_link(image_reference_url(item), '查看配图或素材来源')}｜{image_guidance_text(item)}",
                     "",
                 ]
             )
@@ -1147,7 +1160,11 @@ def render_item_card(item: NewsItem, index: int, config: Config) -> str:
             alt=html.escape(item.title, quote=True),
         )
     else:
-        image_block = '<div class="image-placeholder">暂无配图</div>'
+        image_block = (
+            '<div class="image-placeholder">'
+            '<a href="{url}">未自动提取配图；查看可用截图/素材来源</a>'
+            "</div>"
+        ).format(url=html.escape(image_reference_url(item), quote=True))
 
     return f"""
     <article class="card">
@@ -1157,6 +1174,7 @@ def render_item_card(item: NewsItem, index: int, config: Config) -> str:
         <h3>{index}. {html_link(item.url, item.title)}</h3>
         <div class="section"><b>简短摘要</b>{format_summary_html(item.summary)}</div>
         <div class="section"><b>为什么重要</b><p>{html.escape(item.why_important)}</p></div>
+        <div class="section"><b>配图 / 截图建议</b><p>{html.escape(image_guidance_text(item))} {html_link(image_reference_url(item), "查看配图或素材来源")}</p></div>
       </div>
     </article>
     """
@@ -1271,6 +1289,7 @@ def render_html(config: Config, items: list[NewsItem], extension_items: list[New
       font-size: 13px;
       text-align: center;
     }}
+    .image-placeholder a {{ color: #475569; font-weight: 800; }}
     .card-body {{ padding: 20px; }}
     .meta {{ display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }}
     .meta span {{
