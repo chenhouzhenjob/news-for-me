@@ -1079,6 +1079,17 @@ def markdown_link(url: str, text: str) -> str:
     return f"[{escaped_text}]({url})"
 
 
+def render_image_markdown(item: NewsItem) -> str:
+    note = item.image_note or "建议使用原文首图、产品截图、项目截图或论文核心图表作为配图。"
+    if item.image_url:
+        return (
+            f"- 配图/截图：{markdown_link(item.image_url, '图片链接')}"
+            f"｜{markdown_link(item.url, '原文来源')}｜{note}"
+        )
+    source_url = item.image_source_url or item.source_url or item.url
+    return f"- 配图/截图：{note} 来源：{markdown_link(source_url, '可截图来源')}"
+
+
 def render_markdown(config: Config, items: list[NewsItem], extension_items: list[NewsItem], errors: list[str]) -> str:
     start, end = report_window(config)
     subject_date = config.report_date.isoformat()
@@ -1106,6 +1117,7 @@ def render_markdown(config: Config, items: list[NewsItem], extension_items: list
                     f"- 来源：{item.source_name}｜发布时间：{published_local:%Y-%m-%d %H:%M %Z}",
                     f"- 简短摘要：{item.summary}",
                     f"- 为什么重要：{item.why_important}",
+                    render_image_markdown(item),
                     "",
                 ]
             )
@@ -1147,7 +1159,23 @@ def render_item_card(item: NewsItem, index: int, config: Config) -> str:
             alt=html.escape(item.title, quote=True),
         )
     else:
-        image_block = '<div class="image-placeholder">暂无配图</div>'
+        image_block = '<div class="image-placeholder">可使用下方配图 / 截图建议补充展示</div>'
+
+    image_note = item.image_note or "建议使用原文首图、产品截图、项目截图或论文核心图表作为配图。"
+    if item.image_url:
+        image_guidance = (
+            '<div class="image-guidance"><b>配图 / 截图</b>'
+            f'<span>已提取原文配图：</span>{html_link(item.image_url, "图片链接")}'
+            f'<span>｜</span>{html_link(item.url, "原文来源")}'
+            f'<p>{html.escape(image_note)}</p></div>'
+        )
+    else:
+        image_source_url = item.image_source_url or item.source_url or item.url
+        image_guidance = (
+            '<div class="image-guidance"><b>配图 / 截图建议</b>'
+            f'<p>{html.escape(image_note)}</p>'
+            f'<p>{html_link(image_source_url, "打开可截图来源")}</p></div>'
+        )
 
     return f"""
     <article class="card">
@@ -1157,6 +1185,7 @@ def render_item_card(item: NewsItem, index: int, config: Config) -> str:
         <h3>{index}. {html_link(item.url, item.title)}</h3>
         <div class="section"><b>简短摘要</b>{format_summary_html(item.summary)}</div>
         <div class="section"><b>为什么重要</b><p>{html.escape(item.why_important)}</p></div>
+        {image_guidance}
       </div>
     </article>
     """
@@ -1285,6 +1314,21 @@ def render_html(config: Config, items: list[NewsItem], extension_items: list[New
     .section {{ margin-top: 12px; padding-top: 12px; border-top: 1px solid #eef2f7; }}
     .section b {{ color: #334155; }}
     .section p {{ margin: 5px 0 0; }}
+    .image-guidance {{
+      margin-top: 14px;
+      padding: 13px 15px;
+      border-radius: 16px;
+      background: #f8fafc;
+      border: 1px dashed #cbd5e1;
+      color: #475569;
+      font-size: 13px;
+    }}
+    .image-guidance b {{
+      display: block;
+      margin-bottom: 5px;
+      color: #334155;
+    }}
+    .image-guidance p {{ margin: 5px 0 0; }}
     .empty, .footer-note, ul.reading, .errors {{
       padding: 16px 20px;
       border-radius: 18px;
