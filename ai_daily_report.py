@@ -1079,6 +1079,17 @@ def markdown_link(url: str, text: str) -> str:
     return f"[{escaped_text}]({url})"
 
 
+def image_reference_markdown(item: NewsItem) -> str:
+    if item.image_url:
+        note = item.image_note or "建议使用原文首图作为配图。"
+        return f"{markdown_link(item.image_url, '图片链接')}｜{note}"
+    if item.image_source_url:
+        note = item.image_note or "建议打开来源页面截取合适的产品图、论文图或页面截图。"
+        return f"{markdown_link(item.image_source_url, '截图/配图来源')}｜{note}"
+    note = item.image_note or "建议打开原文截取合适的产品图、论文图、图表或页面截图。"
+    return f"{note}"
+
+
 def render_markdown(config: Config, items: list[NewsItem], extension_items: list[NewsItem], errors: list[str]) -> str:
     start, end = report_window(config)
     subject_date = config.report_date.isoformat()
@@ -1104,6 +1115,8 @@ def render_markdown(config: Config, items: list[NewsItem], extension_items: list
                     f"### {index}. {markdown_link(item.url, item.title)}",
                     f"- 类别：{item.category}",
                     f"- 来源：{item.source_name}｜发布时间：{published_local:%Y-%m-%d %H:%M %Z}",
+                    f"- 原始链接：{markdown_link(item.url, item.url)}",
+                    f"- 配图/截图：{image_reference_markdown(item)}",
                     f"- 简短摘要：{item.summary}",
                     f"- 为什么重要：{item.why_important}",
                     "",
@@ -1147,7 +1160,19 @@ def render_item_card(item: NewsItem, index: int, config: Config) -> str:
             alt=html.escape(item.title, quote=True),
         )
     else:
-        image_block = '<div class="image-placeholder">暂无配图</div>'
+        image_source = item.image_source_url or item.url
+        image_block = (
+            '<a class="image-placeholder" href="{url}">'
+            "<span>配图 / 截图建议</span>"
+            "<strong>{note}</strong>"
+            "</a>"
+        ).format(
+            url=html.escape(image_source, quote=True),
+            note=html.escape(item.image_note or "打开来源页面截取合适的产品图、论文图、图表或页面截图。"),
+        )
+
+    image_reference_url = item.image_url or item.image_source_url or item.url
+    image_reference_label = "图片链接" if item.image_url else "截图/配图来源"
 
     return f"""
     <article class="card">
@@ -1155,6 +1180,8 @@ def render_item_card(item: NewsItem, index: int, config: Config) -> str:
       <div class="card-body">
         <div class="meta"><span>{html.escape(item.category)}</span><span>{html.escape(item.source_name)}</span><span>{published_local:%Y-%m-%d %H:%M %Z}</span></div>
         <h3>{index}. {html_link(item.url, item.title)}</h3>
+        <div class="source-row"><b>原始链接</b>{html_link(item.url, item.url)}</div>
+        <div class="source-row"><b>配图 / 截图</b>{html_link(image_reference_url, image_reference_label)}<span>{html.escape(item.image_note or "建议打开原文截取合适配图。")}</span></div>
         <div class="section"><b>简短摘要</b>{format_summary_html(item.summary)}</div>
         <div class="section"><b>为什么重要</b><p>{html.escape(item.why_important)}</p></div>
       </div>
@@ -1264,12 +1291,26 @@ def render_html(config: Config, items: list[NewsItem], extension_items: list[New
       border: 0;
     }}
     .image-placeholder {{
+      display: block;
       padding: 14px 18px;
       background: #f8fafc;
       border-bottom: 1px solid #e5e7eb;
-      color: #94a3b8;
+      color: #475569;
       font-size: 13px;
-      text-align: center;
+      text-align: left;
+    }}
+    .image-placeholder span {{
+      display: block;
+      color: #2563eb;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .3px;
+      margin-bottom: 4px;
+    }}
+    .image-placeholder strong {{
+      display: block;
+      color: #334155;
+      font-weight: 700;
     }}
     .card-body {{ padding: 20px; }}
     .meta {{ display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }}
@@ -1282,6 +1323,16 @@ def render_html(config: Config, items: list[NewsItem], extension_items: list[New
       font-weight: 800;
     }}
     .card h3 {{ margin: 8px 0 14px; font-size: 20px; color: #0f172a; line-height: 1.35; }}
+    .source-row {{
+      margin: 8px 0;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      font-size: 13px;
+    }}
+    .source-row b {{ display: inline-block; min-width: 76px; color: #334155; }}
+    .source-row span {{ display: block; margin-top: 4px; color: #64748b; }}
     .section {{ margin-top: 12px; padding-top: 12px; border-top: 1px solid #eef2f7; }}
     .section b {{ color: #334155; }}
     .section p {{ margin: 5px 0 0; }}
