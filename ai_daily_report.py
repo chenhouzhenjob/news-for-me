@@ -1079,6 +1079,13 @@ def markdown_link(url: str, text: str) -> str:
     return f"[{escaped_text}]({url})"
 
 
+def markdown_image_info(item: NewsItem) -> str:
+    if item.image_url:
+        return f"{markdown_link(item.image_url, '图片链接')}｜{item.image_note}"
+    image_source_url = item.image_source_url or item.source_url or item.url
+    return f"{item.image_note} 参考：{markdown_link(image_source_url, '截图/配图来源')}"
+
+
 def render_markdown(config: Config, items: list[NewsItem], extension_items: list[NewsItem], errors: list[str]) -> str:
     start, end = report_window(config)
     subject_date = config.report_date.isoformat()
@@ -1104,6 +1111,8 @@ def render_markdown(config: Config, items: list[NewsItem], extension_items: list
                     f"### {index}. {markdown_link(item.url, item.title)}",
                     f"- 类别：{item.category}",
                     f"- 来源：{item.source_name}｜发布时间：{published_local:%Y-%m-%d %H:%M %Z}",
+                    f"- 原始链接：{markdown_link(item.url, item.url)}｜来源主页：{markdown_link(item.source_url, item.source_name)}",
+                    f"- 配图/截图：{markdown_image_info(item)}",
                     f"- 简短摘要：{item.summary}",
                     f"- 为什么重要：{item.why_important}",
                     "",
@@ -1139,6 +1148,17 @@ def render_item_card(item: NewsItem, index: int, config: Config) -> str:
     published_local = item.published_at.astimezone(ZoneInfo(config.timezone_name))
     image_block = ""
     if item.image_url:
+        image_info = (
+            f'{html_link(item.image_url, "图片链接")}｜'
+            f'{html.escape(item.image_note)}'
+        )
+    else:
+        image_source_url = item.image_source_url or item.source_url or item.url
+        image_info = (
+            f'{html.escape(item.image_note)} '
+            f'参考：{html_link(image_source_url, "截图/配图来源")}'
+        )
+    if item.image_url:
         image_block = (
             '<a class="image-link" href="{url}"><img src="{src}" alt="{alt}"></a>'
         ).format(
@@ -1155,6 +1175,10 @@ def render_item_card(item: NewsItem, index: int, config: Config) -> str:
       <div class="card-body">
         <div class="meta"><span>{html.escape(item.category)}</span><span>{html.escape(item.source_name)}</span><span>{published_local:%Y-%m-%d %H:%M %Z}</span></div>
         <h3>{index}. {html_link(item.url, item.title)}</h3>
+        <div class="info-list">
+          <p><b>原始链接</b>{html_link(item.url, item.url)}｜来源主页：{html_link(item.source_url, item.source_name)}</p>
+          <p><b>配图 / 截图建议</b>{image_info}</p>
+        </div>
         <div class="section"><b>简短摘要</b>{format_summary_html(item.summary)}</div>
         <div class="section"><b>为什么重要</b><p>{html.escape(item.why_important)}</p></div>
       </div>
@@ -1282,6 +1306,21 @@ def render_html(config: Config, items: list[NewsItem], extension_items: list[New
       font-weight: 800;
     }}
     .card h3 {{ margin: 8px 0 14px; font-size: 20px; color: #0f172a; line-height: 1.35; }}
+    .info-list {{
+      margin: 12px 0 4px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      color: #475569;
+      font-size: 13px;
+    }}
+    .info-list p {{ margin: 4px 0; }}
+    .info-list b {{
+      display: inline-block;
+      min-width: 96px;
+      color: #0f172a;
+    }}
     .section {{ margin-top: 12px; padding-top: 12px; border-top: 1px solid #eef2f7; }}
     .section b {{ color: #334155; }}
     .section p {{ margin: 5px 0 0; }}
